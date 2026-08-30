@@ -794,6 +794,15 @@ def _racket_edges(node) -> list[tuple[str, list[str]]]:
     return []
 
 
+#: Langs whose `#lang` LINE carries extra module paths that the lang requires
+#: into the module. punct's reader (`read-line-modpaths`) reads datums to the
+#: end of the line, each checked with `module-path?` -- `#lang punct camp-demo`
+#: requires `camp-demo` into the document. The line is defined by Racket's
+#: reader even when the BODY is a document we cannot read, so these edges are
+#: extracted for every tier, text included.
+_RACKET_LANG_LINE_REQUIRE_LANGS = frozenset({"punct"})
+
+
 #: Node types under which a `(require ...)` is DATA, not a require of this
 #: file: quoted and syntax-quoted forms (macro templates, `eval` payloads),
 #: comments (`#;` above all), and a span the reader could not read.
@@ -829,19 +838,41 @@ def _extract_racket_imports(content: str, repo: Optional[str] = None) -> list[di
     lang needs `repo`, the same way the walker does), a `require` is a list
     whose head is that symbol at any depth of CODE, and a document-tier
     file contributes no edges -- a reader it does not have cannot say where
-    the Racket in it is.
+    the Racket in it is. The one exception is the `#lang` LINE itself, whose
+    syntax is Racket's regardless of the body: langs in
+    `_RACKET_LANG_LINE_REQUIRE_LANGS` require the module paths written there.
     """
-    from .extractor import _racket_command_char, _racket_tier   # lazy: the cycle runs the other way
+    from .extractor import (   # lazy: the cycle runs the other way
+        _racket_command_char,
+        _racket_tier,
+        _RACKET_LANG_RE,
+        _racket_lang_matches,
+    )
     from .racket_reader import read_racket
 
     source = content.encode("utf-8", "surrogatepass")
     tier, written = _racket_tier(source, repo)
-    if tier == "text":
-        return []
-    tree = read_racket(source, at_exp=(tier == "at-exp"),
-                       command_char=_racket_command_char(written, repo))
     edges: list[dict] = []
     seen: set[tuple] = set()
+
+    # `#lang punct camp-demo "helpers.rkt"`: module paths on the `#lang` line.
+    lang_head = written.split()[0] if written else ""
+    if lang_head and _racket_lang_matches(lang_head, _RACKET_LANG_LINE_REQUIRE_LANGS):
+        m = _RACKET_LANG_RE.match(source[:4096])
+        line_end = source.find(b"\n", m.end(1))
+        tail = source[m.end(1):line_end if line_end != -1 else len(source)]
+        for node in read_racket(tail).root_node.children:
+            if node.type in _RACKET_NOT_CODE:
+                continue
+            for spec, names in _racket_edges(_racket_datum(node)):
+                key = (spec, tuple(names))
+                if key not in seen:
+                    seen.add(key)
+                    edges.append({"specifier": spec, "names": names})
+    if tier == "text":
+        return edges
+    tree = read_racket(source, at_exp=(tier == "at-exp"),
+                       command_char=_racket_command_char(written, repo))
     stack = [tree.root_node]
     while stack:
         node = stack.pop()

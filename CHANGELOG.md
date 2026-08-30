@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added - a punct document's `#lang` line module paths are `require` edges
+
+`#lang punct camp-demo "helpers.rkt"` requires `camp-demo` and `helpers.rkt`
+into the document: punct's reader (`read-line-modpaths`) reads module-path
+datums to the end of the line, each checked with `module-path?`. 1.108.310's
+rule stands -- a document's BODY contributes no edges, because a reader we do
+not have cannot say where the Racket in it is -- but the `#lang` line's syntax
+is Racket's whatever the body is, so a punct file now contributes exactly the
+edges its lang line declares. Bare collection paths resolve through the
+`info.rkt` collection map like any other. Measured on a real punct site: 7
+`#lang punct camp-demo` documents, each now carrying its edge to the
+`camp-demo` collection that renders it.
+
 ## [1.108.310] - 2026-08-30 - A `#lang` line selects a reader, and a grammar cannot follow it
 
 ### Fixed - `#lang rosette` is S-expressions

@@ -689,6 +689,27 @@ def test_a_configured_at_exp_lang_yields_its_requires_when_repo_is_passed(monkey
     assert extract_imports(src, "s.rkt", "racket") == [], "unconfigured, conscript is a document"
 
 
+def test_punct_lang_line_module_paths_are_require_edges():
+    """punct's reader reads module-path datums to the end of the `#lang` line
+    and requires each into the document (`read-line-modpaths`, checked with
+    `module-path?`). The BODY is Markdown we cannot read, but the line is
+    Racket's syntax whatever the body is -- so a punct document contributes
+    exactly these edges and nothing else."""
+    src = ('#lang punct camp-demo "helpers.rkt" lib/util\n'
+           '---\ntitle: A post\n---\n\n'
+           'Some *Markdown*; (require "not-an-edge.rkt") is prose here.\n')
+    edges = {e["specifier"]: e["names"] for e in extract_imports(src, "post.rkt", "racket")}
+    assert edges == {"camp-demo": [], "helpers.rkt": [], "lib/util": []}
+    assert extract_imports("#lang punct\n\nJust prose.\n", "p.rkt", "racket") == []
+
+
+def test_lang_line_paths_are_read_only_for_langs_that_require_them():
+    """`#lang at-exp racket/base` carries a LANG after the name, not a
+    require; nothing outside the table reads its line."""
+    assert extract_imports("#lang at-exp racket/base\n", "a.rkt", "racket") == []
+    assert extract_imports("#lang racket/base\n", "a.rkt", "racket") == []
+
+
 # ── import edges must RESOLVE, not merely parse ───────────────────────────
 #
 # ⚠⚠ An extracted edge nothing downstream can resolve is indistinguishable
